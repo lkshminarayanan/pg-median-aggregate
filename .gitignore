@@ -1,0 +1,8 @@
+.idea
+*.bc
+*.o
+*.so
+test/log
+test/regression.*
+test/results
+tmpdb
