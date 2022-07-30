@@ -28,6 +28,21 @@ INSERT INTO intvals VALUES
 SELECT * FROM intvals ORDER BY val;
 SELECT median(val) FROM intvals;
 
+-- Real values
+CREATE TABLE realvals(val real, color text);
+INSERT INTO realvals VALUES
+        (76.2, 'a'),
+        (33.71, 'c'),
+        (21.5, 'b'),
+        (56.38, 'c'),
+        (10, 'd'),
+        (99.12, 'd'),
+        (24.98, 'e'),
+        (33.72, 'f');
+
+SELECT * FROM realvals ORDER BY val;
+SELECT median(val) FROM realvals;
+
 -- Text values
 CREATE TABLE textvals(val text, color int);
 

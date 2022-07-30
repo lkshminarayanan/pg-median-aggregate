@@ -62,6 +62,13 @@ calculate_avg(Datum a, Datum b, Oid datum_type)
 				/* TODO: Return a mean with decimal value intact */
 				return Int64GetDatum((float) (af + bf) / 2);
 			}
+		case FLOAT4OID:
+			{
+				float4		af = DatumGetFloat4(a);
+				float4		bf = DatumGetFloat4(b);
+
+				return Float4GetDatum(af / 2 + bf / 2);
+			}
 		default:
 			elog(WARNING, "Unsupported data type");
 			return PointerGetDatum(NULL);

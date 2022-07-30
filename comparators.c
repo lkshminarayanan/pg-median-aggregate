@@ -10,6 +10,8 @@
  *		- positive value if l > r
  */
 
+#define COMPARE(a,b) (((a) > (b)) - ((a) < (b)))
+
 /*
  * datum_comparator_integer
  *	 Comparator for integer data types
@@ -24,6 +26,17 @@ datum_comparator_integer(const void *l, const void *r)
 }
 
 /*
+ * datum_comparator_float4
+ *	 Comparator for float4 data type
+ */
+int
+datum_comparator_float4(const void *l, const void *r)
+{
+	return COMPARE(DatumGetFloat4(*(const Datum *) l),
+				   DatumGetFloat4(*(const Datum *) r));
+}
+
+/*
  * get_comparator
  *	 Returns the matching comparator for the given type
  */
@@ -35,6 +48,8 @@ get_comparator(Oid datum_type)
 		case INT2OID:
 		case INT4OID:
 			return datum_comparator_integer;
+		case FLOAT4OID:
+			return datum_comparator_float4;
 		case InvalidOid:
 			elog(ERROR, "invalid oid type");
 		default:

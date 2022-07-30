@@ -65,6 +65,36 @@ SELECT median(val) FROM intvals;
       2
 (1 row)
 
+-- Real values
+CREATE TABLE realvals(val real, color text);
+INSERT INTO realvals VALUES
+        (76.2, 'a'),
+        (33.71, 'c'),
+        (21.5, 'b'),
+        (56.38, 'c'),
+        (10, 'd'),
+        (99.12, 'd'),
+        (24.98, 'e'),
+        (33.72, 'f');
+SELECT * FROM realvals ORDER BY val;
+  val  | color 
+-------+-------
+    10 | d
+  21.5 | b
+ 24.98 | e
+ 33.71 | c
+ 33.72 | f
+ 56.38 | c
+  76.2 | a
+ 99.12 | d
+(8 rows)
+
+SELECT median(val) FROM realvals;
+ median 
+--------
+ 33.715
+(1 row)
+
 -- Text values
 CREATE TABLE textvals(val text, color int);
 INSERT INTO textvals VALUES
