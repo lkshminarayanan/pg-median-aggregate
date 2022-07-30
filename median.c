@@ -1,5 +1,7 @@
 #include <postgres.h>
 #include <fmgr.h>
+#include <catalog/pg_type.h>
+#include "array.h"
 
 #if PG_VERSION_NUM < 120000 || PG_VERSION_NUM >= 130000
 #error "Unsupported PostgreSQL version. Use version 12."
@@ -26,7 +28,44 @@ median_transfn(PG_FUNCTION_ARGS)
 	if (!AggCheckCallContext(fcinfo, &agg_context))
 		elog(ERROR, "median_transfn called in non-aggregate context");
 
-	PG_RETURN_NULL();
+	/* Retrieve the old state */
+	Array	   *state = (Array *) (PG_ARGISNULL(0) ? NULL : PG_GETARG_POINTER(0));
+
+	if (!PG_ARGISNULL(1))
+	{
+		/* value not null - append it inside the state array */
+		if (state == NULL)
+		{
+			/* create a new state */
+			Oid			type = get_fn_expr_argtype(fcinfo->flinfo, 1);
+
+			state = array_create(agg_context, type);
+		}
+		array_insert(state, agg_context, PG_GETARG_DATUM(1));
+	}
+
+	PG_RETURN_POINTER(state);
+}
+
+/* Calculate the average of 2 given elements */
+Datum
+calculate_avg(Datum a, Datum b, Oid datum_type)
+{
+	switch (datum_type)
+	{
+		case INT2OID:
+		case INT4OID:
+			{
+				int64		af = DatumGetInt64(a);
+				int64		bf = DatumGetInt64(b);
+
+				/* TODO: Return a mean with decimal value intact */
+				return Int64GetDatum((float) (af + bf) / 2);
+			}
+		default:
+			elog(WARNING, "Unsupported data type");
+			return PointerGetDatum(NULL);
+	}
 }
 
 PG_FUNCTION_INFO_V1(median_finalfn);
@@ -46,5 +85,27 @@ median_finalfn(PG_FUNCTION_ARGS)
 	if (!AggCheckCallContext(fcinfo, &agg_context))
 		elog(ERROR, "median_finalfn called in non-aggregate context");
 
-	PG_RETURN_NULL();
+	Array	   *state = (Array *) (PG_ARGISNULL(0) ? NULL : PG_GETARG_POINTER(0));
+
+	if (state == NULL)
+	{
+		/* query either returned 0 rows or only rows with NULL value */
+		PG_RETURN_NULL();
+	}
+
+	/* Sort the values in the array */
+	array_qsort(state);
+
+	/* calculate and return the median value */
+	Datum		median = state->data[state->length / 2];
+
+	if (state->length % 2 == 0)
+	{
+		/* even array length */
+		median = calculate_avg(median, state->data[state->length / 2 - 1],
+							   state->type);
+	}
+
+	array_free(state);
+	return median;
 }
