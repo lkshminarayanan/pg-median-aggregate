@@ -81,8 +81,18 @@ array_insert(Array * array, MemoryContext agg_context, Datum value)
  *	 Sorts the values stored in the array
  */
 void
-array_qsort(Array * array)
+array_qsort(Array * array, Oid collation_oid)
 {
-	qsort(array->data, array->length, sizeof(Datum),
-		  get_comparator(array->type));
+	if (collation_oid == InvalidOid)
+	{
+		/* Array has a non collatable data type */
+		qsort(array->data, array->length, sizeof(Datum),
+			  get_comparator(array->type));
+	}
+	else
+	{
+		/* collatable data type */
+		qsort_arg(array->data, array->length, sizeof(Datum),
+				  get_comparator(array->type), &collation_oid);
+	}
 }

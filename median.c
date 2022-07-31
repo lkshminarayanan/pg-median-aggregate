@@ -69,6 +69,9 @@ calculate_avg(Datum a, Datum b, Oid datum_type)
 
 				return Float4GetDatum(af / 2 + bf / 2);
 			}
+		case TEXTOID:
+			elog(WARNING, "Cannot calculate average for 2 text values");
+			return PointerGetDatum(NULL);
 		default:
 			elog(WARNING, "Unsupported data type");
 			return PointerGetDatum(NULL);
@@ -101,7 +104,7 @@ median_finalfn(PG_FUNCTION_ARGS)
 	}
 
 	/* Sort the values in the array */
-	array_qsort(state);
+	array_qsort(state, PG_GET_COLLATION());
 
 	/* calculate and return the median value */
 	Datum		median = state->data[state->length / 2];

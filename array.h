@@ -15,7 +15,7 @@ typedef struct Array
 /* Array functions */
 Array	   *array_create(MemoryContext agg_context, Oid type);
 void		array_insert(Array * array, MemoryContext agg_context, Datum value);
-void		array_qsort(Array * array);
+void		array_qsort(Array * array, Oid collation_oid);
 void		array_free(Array * array);
 
 #endif   /* STATE_ARRAY_H */

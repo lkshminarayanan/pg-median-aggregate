@@ -1,5 +1,6 @@
 #include <postgres.h>
 #include <catalog/pg_type.h>
+#include <utils/varlena.h>
 
 #include "comparators.h"
 
@@ -37,6 +38,27 @@ datum_comparator_float4(const void *l, const void *r)
 }
 
 /*
+ * datum_comparator_text
+ *	 Comparator for text data type
+ */
+int
+datum_comparator_text(const void *l, const void *r, void *arg)
+{
+	const text *lValue = DatumGetTextP(*(const Datum *) l);
+	const text *rValue = DatumGetTextP(*(const Datum *) r);
+
+	if (arg == NULL)
+	{
+		elog(ERROR,
+			 "NULL collation oid sent to datum_comparator_text function");
+	}
+
+	return varstr_cmp(VARDATA(lValue), VARSIZE(lValue),
+					  VARDATA(rValue), VARSIZE(rValue),
+					  *(Oid *) arg);
+}
+
+/*
  * get_comparator
  *	 Returns the matching comparator for the given type
  */
@@ -50,6 +72,8 @@ get_comparator(Oid datum_type)
 			return datum_comparator_integer;
 		case FLOAT4OID:
 			return datum_comparator_float4;
+		case TEXTOID:
+			return datum_comparator_text;
 		case InvalidOid:
 			elog(ERROR, "invalid oid type");
 		default:
