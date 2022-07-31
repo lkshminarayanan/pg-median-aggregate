@@ -55,6 +55,7 @@ calculate_avg(Datum a, Datum b, Oid datum_type)
 	{
 		case INT2OID:
 		case INT4OID:
+		case TIMESTAMPTZOID:
 			{
 				int64		af = DatumGetInt64(a);
 				int64		bf = DatumGetInt64(b);

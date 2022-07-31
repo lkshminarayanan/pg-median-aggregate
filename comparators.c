@@ -14,16 +14,14 @@
 #define COMPARE(a,b) (((a) > (b)) - ((a) < (b)))
 
 /*
- * datum_comparator_integer
- *	 Comparator for integer data types
+ * datum_comparator_int64
+ *	 Comparator for all numeric data types that can fit into 64 bytes
  */
 int
-datum_comparator_integer(const void *l, const void *r)
+datum_comparator_int64(const void *l, const void *r)
 {
-	const Datum lValue = *(const Datum *) l;
-	const Datum rValue = *(const Datum *) r;
-
-	return lValue - rValue;
+	return COMPARE(DatumGetInt64(*(const Datum *) l),
+				   DatumGetInt64(*(const Datum *) r));
 }
 
 /*
@@ -69,7 +67,8 @@ get_comparator(Oid datum_type)
 	{
 		case INT2OID:
 		case INT4OID:
-			return datum_comparator_integer;
+		case TIMESTAMPTZOID:	/* TimestampTz is internally a int64 type */
+			return datum_comparator_int64;
 		case FLOAT4OID:
 			return datum_comparator_float4;
 		case TEXTOID:
