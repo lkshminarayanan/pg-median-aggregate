@@ -1,7 +1,9 @@
 #include <postgres.h>
 #include <fmgr.h>
 #include <catalog/pg_type.h>
+#include <libpq/pqformat.h>
 #include "array.h"
+#include "serializers.h"
 
 #if PG_VERSION_NUM < 120000 || PG_VERSION_NUM >= 130000
 #error "Unsupported PostgreSQL version. Use version 12."
@@ -119,4 +121,98 @@ median_finalfn(PG_FUNCTION_ARGS)
 
 	array_free(state);
 	return median;
+}
+
+PG_FUNCTION_INFO_V1(median_combinefn);
+
+/*
+ * Median state combine function.
+ *
+ * This function is called to combine two partial aggregate states.
+ */
+Datum
+median_combinefn(PG_FUNCTION_ARGS)
+{
+	MemoryContext agg_context;
+
+	if (!AggCheckCallContext(fcinfo, &agg_context))
+		elog(ERROR, "median_combinefn called in non-aggregate context");
+
+	Array	   *state1 = (Array *) (PG_ARGISNULL(0) ? NULL : PG_GETARG_POINTER(0));
+	Array	   *state2 = (Array *) (PG_ARGISNULL(1) ? NULL : PG_GETARG_POINTER(1));
+
+	Array	   *combined_state = NULL;
+
+	if (state1 != NULL)
+	{
+		combined_state = array_combine(agg_context, combined_state, state1);
+	}
+
+	if (state2 != NULL)
+	{
+		combined_state = array_combine(agg_context, combined_state, state2);
+	}
+
+	PG_RETURN_POINTER(combined_state);
+}
+
+PG_FUNCTION_INFO_V1(median_serializefn);
+
+/* Median state serializer */
+Datum
+median_serializefn(PG_FUNCTION_ARGS)
+{
+	Assert(!PG_ARGISNULL(0));
+	Array	   *state = (Array *) PG_GETARG_POINTER(0);
+
+	StringInfoData buf;
+
+	pq_begintypsend(&buf);
+	pq_sendint32(&buf, state->length);
+	pq_sendint32(&buf, state->type);
+
+	serializer	serialize_func = get_serializer(state->type);
+
+	for (int32 i = 0; i < state->length; i++)
+	{
+		serialize_func(&buf, state->data[i]);
+	}
+
+	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
+}
+
+PG_FUNCTION_INFO_V1(median_deserializefn);
+
+/* Median state deserializer */
+Datum
+median_deserializefn(PG_FUNCTION_ARGS)
+{
+	MemoryContext agg_context;
+
+	if (!AggCheckCallContext(fcinfo, &agg_context))
+		elog(ERROR, "median_deserializefn called in non-aggregate context");
+
+	Assert(!PG_ARGISNULL(0));
+	bytea	   *serialized = PG_GETARG_BYTEA_P(0);
+
+	StringInfoData buf;
+
+	buf.data = VARDATA(serialized);
+	buf.len = VARSIZE(serialized) - VARHDRSZ;
+	buf.maxlen = VARSIZE(serialized) - VARHDRSZ;
+	buf.cursor = 0;
+
+	int32		array_length = pq_getmsgint(&buf, 4);
+	Oid			type = pq_getmsgint(&buf, 4);
+	Array	   *state = array_create_with_capacity(agg_context, array_length, type);
+	deserializer deserialize_func = get_deserializer(type);
+
+	for (int i = 0; i < array_length; i++)
+	{
+		array_insert(state, agg_context, deserialize_func(&buf, agg_context));
+	}
+
+	pq_getmsgend(&buf);
+
+	PG_RETURN_POINTER(state);
 }

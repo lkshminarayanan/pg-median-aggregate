@@ -15,7 +15,7 @@ REGRESS_OPTS := \
 # Allow code declarations after statement
 PG_CFLAGS = -Wno-declaration-after-statement -Wno-missing-prototypes
 
-SRCS = median.c array.c comparators.c
+SRCS = median.c array.c comparators.c serializers.c
 OBJS = $(patsubst %.c,%.o,$(SRCS))
 TARBALL = timescaledb-coding-assignment.tar.gz
 

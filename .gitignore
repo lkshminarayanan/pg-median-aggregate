@@ -6,3 +6,5 @@ test/log
 test/regression.*
 test/results
 tmpdb
+*.orig
+*.BAK
