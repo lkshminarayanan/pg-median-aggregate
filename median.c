@@ -49,38 +49,6 @@ median_transfn(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
-/* Calculate the average of 2 given elements */
-Datum
-calculate_avg(Datum a, Datum b, Oid datum_type)
-{
-	switch (datum_type)
-	{
-		case INT2OID:
-		case INT4OID:
-		case TIMESTAMPTZOID:
-			{
-				int64		af = DatumGetInt64(a);
-				int64		bf = DatumGetInt64(b);
-
-				/* TODO: Return a mean with decimal value intact */
-				return Int64GetDatum((float) (af + bf) / 2);
-			}
-		case FLOAT4OID:
-			{
-				float4		af = DatumGetFloat4(a);
-				float4		bf = DatumGetFloat4(b);
-
-				return Float4GetDatum(af / 2 + bf / 2);
-			}
-		case TEXTOID:
-			elog(WARNING, "Cannot calculate average for 2 text values");
-			return PointerGetDatum(NULL);
-		default:
-			elog(WARNING, "Unsupported data type");
-			return PointerGetDatum(NULL);
-	}
-}
-
 PG_FUNCTION_INFO_V1(median_finalfn);
 
 /*
@@ -106,20 +74,11 @@ median_finalfn(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 
-	/* Sort the values in the array */
-	array_qsort(state, PG_GET_COLLATION());
-
-	/* calculate and return the median value */
-	Datum		median = state->data[state->length / 2];
-
-	if (state->length % 2 == 0)
-	{
-		/* even array length */
-		median = calculate_avg(median, state->data[state->length / 2 - 1],
-							   state->type);
-	}
+	/* Extract the median */
+	Datum		median = array_get_median(state, PG_GET_COLLATION());
 
 	array_free(state);
+
 	return median;
 }
 
@@ -175,7 +134,7 @@ median_serializefn(PG_FUNCTION_ARGS)
 
 	for (int32 i = 0; i < state->length; i++)
 	{
-		serialize_func(&buf, state->data[i]);
+		serialize_func(&buf, &state->data[i * state->element_size]);
 	}
 
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
@@ -204,14 +163,15 @@ median_deserializefn(PG_FUNCTION_ARGS)
 
 	int32		array_length = pq_getmsgint(&buf, 4);
 	Oid			type = pq_getmsgint(&buf, 4);
-	Array	   *state = array_create_with_capacity(agg_context, array_length, type);
+	Array	   *state = array_create_with_capacity(agg_context, type, array_length);
 	deserializer deserialize_func = get_deserializer(type);
 
 	for (int i = 0; i < array_length; i++)
 	{
-		array_insert(state, agg_context, deserialize_func(&buf, agg_context));
+		deserialize_func(&buf, agg_context, &state->data[i * state->element_size]);
 	}
 
+	state->length = array_length;
 	pq_getmsgend(&buf);
 
 	PG_RETURN_POINTER(state);

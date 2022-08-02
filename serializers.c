@@ -8,27 +8,33 @@
  */
 
 void
-serialize_int32(StringInfo buf, Datum datum)
+serialize_int16(StringInfo buf, const Pointer p)
 {
-	pq_sendint32(buf, DatumGetInt32(datum));
+	pq_sendint16(buf, *(int16 *) p);
 }
 
 void
-serialize_int64(StringInfo buf, Datum datum)
+serialize_int32(StringInfo buf, const Pointer p)
 {
-	pq_sendint64(buf, DatumGetInt64(datum));
+	pq_sendint32(buf, *(int32 *) p);
 }
 
 void
-serialize_float4(StringInfo buf, Datum datum)
+serialize_int64(StringInfo buf, const Pointer p)
 {
-	pq_sendfloat4(buf, DatumGetFloat4(datum));
+	pq_sendint64(buf, *(int64 *) p);
 }
 
 void
-serialize_text(StringInfo buf, Datum datum)
+serialize_float4(StringInfo buf, const Pointer p)
 {
-	text	   *tPtr = DatumGetTextPP(datum);
+	pq_sendfloat4(buf, *(float4 *) p);
+}
+
+void
+serialize_text(StringInfo buf, const Pointer p)
+{
+	text	   *tPtr = *(text **) p;
 	int32		textLen = VARSIZE_ANY_EXHDR(tPtr);
 
 	pq_sendint32(buf, textLen);
@@ -41,6 +47,7 @@ get_serializer(Oid datum_type)
 	switch (datum_type)
 	{
 		case INT2OID:
+			return serialize_int16;
 		case INT4OID:
 			return serialize_int32;
 		case FLOAT4OID:
@@ -61,26 +68,32 @@ get_serializer(Oid datum_type)
  *	Oid specific serializer methods
  */
 
-Datum
-deserialize_int32(StringInfo buf, MemoryContext agg_context)
+void
+deserialize_int16(StringInfo buf, MemoryContext agg_context, Pointer p)
 {
-	return Int32GetDatum(pq_getmsgint(buf, 4));
+	*(int16 *) p = pq_getmsgint(buf, 2);
 }
 
-Datum
-deserialize_int64(StringInfo buf, MemoryContext agg_context)
+void
+deserialize_int32(StringInfo buf, MemoryContext agg_context, Pointer p)
 {
-	return Int64GetDatum(pq_getmsgint64(buf));
+	*(int32 *) p = pq_getmsgint(buf, 4);
 }
 
-Datum
-deserialize_float4(StringInfo buf, MemoryContext agg_context)
+void
+deserialize_int64(StringInfo buf, MemoryContext agg_context, Pointer p)
 {
-	return Float4GetDatum(pq_getmsgfloat4(buf));
+	*(int64 *) p = pq_getmsgint64(buf);
 }
 
-Datum
-deserialize_text(StringInfo buf, MemoryContext agg_context)
+void
+deserialize_float4(StringInfo buf, MemoryContext agg_context, Pointer p)
+{
+	*(float4 *) p = pq_getmsgfloat4(buf);
+}
+
+void
+deserialize_text(StringInfo buf, MemoryContext agg_context, Pointer p)
 {
 	int32		textLen = pq_getmsgint(buf, 4);
 	const char *data = pq_getmsgbytes(buf, textLen);
@@ -91,7 +104,7 @@ deserialize_text(StringInfo buf, MemoryContext agg_context)
 	SET_VARSIZE(result, varsize);
 	memcpy(VARDATA(result), data, textLen);
 
-	PG_RETURN_TEXT_P(result);
+	*(text **) p = result;
 }
 
 deserializer
@@ -100,6 +113,7 @@ get_deserializer(Oid datum_type)
 	switch (datum_type)
 	{
 		case INT2OID:
+			return deserialize_int16;
 		case INT4OID:
 			return deserialize_int32;
 		case FLOAT4OID:

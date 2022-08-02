@@ -1,5 +1,9 @@
 #include "array.h"
+
+#include <catalog/pg_type.h>
 #include "comparators.h"
+
+#define AVG(a,b) ((a)/2 + (b)/2)
 
 /*
  * _alloc_array_data
@@ -7,10 +11,11 @@
  *
  * Internal function to be used by the array functions.
  */
-Datum *
-_alloc_array_data(MemoryContext agg_context, int32 capacity)
+Pointer
+_alloc_array_data(MemoryContext agg_context, int32 capacity, int32 element_size)
 {
-	Datum	   *data = (Datum *) MemoryContextAllocZero(agg_context, sizeof(Datum) * capacity);
+	Pointer		data = (Pointer) MemoryContextAllocZero(agg_context,
+													element_size * capacity);
 
 	if (data == NULL)
 	{
@@ -25,7 +30,7 @@ _alloc_array_data(MemoryContext agg_context, int32 capacity)
  *	 the given MemoryContext
  */
 Array *
-array_create_with_capacity(MemoryContext agg_context, int32 capacity, Oid type)
+array_create_with_capacity(MemoryContext agg_context, Oid type, int32 capacity)
 {
 	Array	   *array = (Array *) MemoryContextAllocZero(agg_context,
 														 sizeof(Array));
@@ -33,7 +38,10 @@ array_create_with_capacity(MemoryContext agg_context, int32 capacity, Oid type)
 	array->capacity = capacity;
 	array->length = 0;
 	array->type = type;
-	array->data = _alloc_array_data(agg_context, capacity);
+	array->array_setter = get_pointer_array_setter_and_element_size(
+												 type, &array->element_size);
+	array->data = _alloc_array_data(
+								 agg_context, capacity, array->element_size);
 	return array;
 }
 
@@ -44,7 +52,7 @@ array_create_with_capacity(MemoryContext agg_context, int32 capacity, Oid type)
 Array *
 array_create(MemoryContext agg_context, Oid type)
 {
-	return array_create_with_capacity(agg_context, 1, type);
+	return array_create_with_capacity(agg_context, type, 1);
 }
 
 /*
@@ -67,11 +75,12 @@ void
 _array_extend_capacity(Array * array, MemoryContext agg_context,
 					   int32 new_capacity)
 {
-	Datum	   *new_data = _alloc_array_data(agg_context,
-											 new_capacity);
+	Pointer		new_data = _alloc_array_data(agg_context,
+											 new_capacity,
+											 array->element_size);
 
 	/* copy the elements into the new memory and update array members */
-	memmove(new_data, array->data, sizeof(Datum) * array->capacity);
+	memmove(new_data, array->data, array->element_size * array->capacity);
 	pfree(array->data);
 	array->data = new_data;
 	array->capacity = new_capacity;
@@ -94,7 +103,7 @@ array_insert(Array * array, MemoryContext agg_context, Datum value)
 	}
 
 	/* insert data at the end */
-	array->data[array->length++] = value;
+	array->array_setter(array->data, value, array->length++);
 }
 
 /*
@@ -108,8 +117,8 @@ array_combine(MemoryContext agg_context, Array * dest, const Array * source)
 	if (dest == NULL)
 	{
 		/* create a new Array as dest is NULL */
-		dest = array_create_with_capacity(agg_context, source->length,
-										  source->type);
+		dest = array_create_with_capacity(agg_context, source->type,
+										  source->length);
 	}
 	else if (dest->capacity - dest->length < source->length)
 	{
@@ -119,9 +128,9 @@ array_combine(MemoryContext agg_context, Array * dest, const Array * source)
 	}
 
 	/* Copy the source elements into dest */
-	Datum	   *dest_offset = &(dest->data[dest->length]);
+	Pointer		dest_offset = &(dest->data[dest->length * dest->element_size]);
 
-	memcpy(dest_offset, source->data, source->length * sizeof(Datum));
+	memcpy(dest_offset, source->data, source->length * source->element_size);
 	dest->length += source->length;
 
 	return dest;
@@ -137,13 +146,66 @@ array_qsort(Array * array, Oid collation_oid)
 	if (collation_oid == InvalidOid)
 	{
 		/* Array has a non collatable data type */
-		qsort(array->data, array->length, sizeof(Datum),
+		qsort(array->data, array->length, array->element_size,
 			  get_comparator(array->type));
 	}
 	else
 	{
 		/* collatable data type */
-		qsort_arg(array->data, array->length, sizeof(Datum),
+		qsort_arg(array->data, array->length, array->element_size,
 				  get_comparator(array->type), &collation_oid);
+	}
+}
+
+Datum
+array_get_median(Array * array, Oid collation_oid)
+{
+	/* Sort the values in the array */
+	array_qsort(array, collation_oid);
+
+	/* calculate and return the median value */
+	Pointer		median1 = &array->data[(array->length / 2) * array->element_size];
+
+	if (array->length % 2 == 1)
+	{
+		/* Even array length */
+		switch (array->type)
+		{
+			case INT2OID:
+				return Int16GetDatum(*(int16 *) median1);
+			case INT4OID:
+				return Int32GetDatum(*(int32 *) median1);
+			case TIMESTAMPTZOID:
+				return Int64GetDatum(*(int64 *) median1);
+			case FLOAT4OID:
+				return Float4GetDatum(*(float4 *) median1);
+			case TEXTOID:
+				return PointerGetDatum(*(text **) median1);
+			default:
+				elog(ERROR, "Unsupported data type");
+		}
+	}
+
+	/*
+	 * even array length pickup the (n/2)-1 element for median calculation
+	 */
+	Pointer		median2 = median1 - array->element_size;
+
+	/* calculate average of median1 and median2 as the mean */
+	switch (array->type)
+	{
+		case INT2OID:
+			return Int16GetDatum(AVG(*(int16 *) median1, *(int16 *) median2));
+		case INT4OID:
+			return Int32GetDatum(AVG(*(int32 *) median1, *(int32 *) median2));
+		case TIMESTAMPTZOID:
+			return Int64GetDatum(AVG(*(int64 *) median1, *(int64 *) median2));
+		case FLOAT4OID:
+			return Float4GetDatum(AVG(*(float4 *) median1, *(float4 *) median2));
+		case TEXTOID:
+			elog(WARNING, "Cannot calculate mean for text array with even length");
+			return PointerGetDatum(NULL);
+		default:
+			elog(ERROR, "Unsupported data type");
 	}
 }

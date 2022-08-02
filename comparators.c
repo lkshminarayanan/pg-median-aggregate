@@ -20,8 +20,17 @@
 int
 datum_comparator_int16(const void *l, const void *r)
 {
-	return COMPARE(DatumGetInt16(*(const Datum *) l),
-				   DatumGetInt16(*(const Datum *) r));
+	return COMPARE(*(int16 *) l, *(int16 *) r);
+}
+
+/*
+ * datum_comparator_int32
+ *	 Comparator for int32 datatype
+ */
+int
+datum_comparator_int32(const void *l, const void *r)
+{
+	return COMPARE(*(int32 *) l, *(int32 *) r);
 }
 
 /*
@@ -31,8 +40,7 @@ datum_comparator_int16(const void *l, const void *r)
 int
 datum_comparator_int64(const void *l, const void *r)
 {
-	return COMPARE(DatumGetInt64(*(const Datum *) l),
-				   DatumGetInt64(*(const Datum *) r));
+	return COMPARE(*(int64 *) l, *(int64 *) r);
 }
 
 /*
@@ -42,8 +50,7 @@ datum_comparator_int64(const void *l, const void *r)
 int
 datum_comparator_float4(const void *l, const void *r)
 {
-	return COMPARE(DatumGetFloat4(*(const Datum *) l),
-				   DatumGetFloat4(*(const Datum *) r));
+	return COMPARE(*(float4 *) l, *(float4 *) r);
 }
 
 /*
@@ -53,17 +60,17 @@ datum_comparator_float4(const void *l, const void *r)
 int
 datum_comparator_text(const void *l, const void *r, void *arg)
 {
-	const text *lValue = DatumGetTextP(*(const Datum *) l);
-	const text *rValue = DatumGetTextP(*(const Datum *) r);
+	const text *lValue = *(text **) l;
+	const text *rValue = *(text **) r;
 
-	if (arg == NULL)
+	if (arg == NULL || *(Oid *) arg == InvalidOid)
 	{
 		elog(ERROR,
-			 "NULL collation oid sent to datum_comparator_text function");
+			 "NULL or Invalid collation oid sent to datum_comparator_text function");
 	}
 
-	return varstr_cmp(VARDATA(lValue), VARSIZE(lValue),
-					  VARDATA(rValue), VARSIZE(rValue),
+	return varstr_cmp(VARDATA_ANY(lValue), VARSIZE_ANY_EXHDR(lValue),
+					  VARDATA_ANY(rValue), VARSIZE_ANY_EXHDR(rValue),
 					  *(Oid *) arg);
 }
 
@@ -79,6 +86,7 @@ get_comparator(Oid datum_type)
 		case INT2OID:
 			return datum_comparator_int16;
 		case INT4OID:
+			return datum_comparator_int32;
 		case TIMESTAMPTZOID:	/* TimestampTz is internally a int64 type */
 			return datum_comparator_int64;
 		case FLOAT4OID:
