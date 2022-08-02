@@ -3,7 +3,6 @@
 #include <catalog/pg_type.h>
 #include <libpq/pqformat.h>
 #include "array.h"
-#include "serializers.h"
 
 #if PG_VERSION_NUM < 120000 || PG_VERSION_NUM >= 130000
 #error "Unsupported PostgreSQL version. Use version 12."
@@ -130,11 +129,24 @@ median_serializefn(PG_FUNCTION_ARGS)
 	pq_sendint32(&buf, state->length);
 	pq_sendint32(&buf, state->type);
 
-	serializer	serialize_func = get_serializer(state->type);
-
-	for (int32 i = 0; i < state->length; i++)
+	if (state->type == TEXTOID)
 	{
-		serialize_func(&buf, &state->data[i * state->element_size]);
+		/* text type has to be serialized per element */
+		int32		textLen;
+		text	  **tPtr = (text **) state->data;
+
+		for (int i = 0; i < state->length; i++, tPtr++)
+		{
+			textLen = VARSIZE_ANY_EXHDR(*tPtr);
+
+			pq_sendint32(&buf, textLen);
+			pq_sendbytes(&buf, VARDATA_ANY(*tPtr), textLen);
+		}
+	}
+	else
+	{
+		/* native types can be copied directly from array */
+		pq_sendbytes(&buf, state->data, state->length * state->element_size);
 	}
 
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
@@ -164,11 +176,35 @@ median_deserializefn(PG_FUNCTION_ARGS)
 	int32		array_length = pq_getmsgint(&buf, 4);
 	Oid			type = pq_getmsgint(&buf, 4);
 	Array	   *state = array_create_with_capacity(agg_context, type, array_length);
-	deserializer deserialize_func = get_deserializer(type);
 
-	for (int i = 0; i < array_length; i++)
+	if (state->type == TEXTOID)
 	{
-		deserialize_func(&buf, agg_context, &state->data[i * state->element_size]);
+		/* text type has to be deserialized per element */
+		int32		textLen;
+		const char *data;
+		int32		varsize;
+		text	   *result;
+		text	  **tPtr = (text **) state->data;
+
+		for (int i = 0; i < array_length; i++, tPtr++)
+		{
+			textLen = pq_getmsgint(&buf, 4);
+			data = pq_getmsgbytes(&buf, textLen);
+			varsize = textLen + VARHDRSZ;
+			result = (text *) MemoryContextAlloc(agg_context,
+												 varsize);
+			SET_VARSIZE(result, varsize);
+			memcpy(VARDATA(result), data, textLen);
+			*tPtr = result;
+		}
+	}
+	else
+	{
+		/* native types can be copied directly into array */
+		int			array_size_in_bytes = array_length * state->element_size;
+		const char *data = pq_getmsgbytes(&buf, array_size_in_bytes);
+
+		memcpy(state->data, data, array_size_in_bytes);
 	}
 
 	state->length = array_length;
